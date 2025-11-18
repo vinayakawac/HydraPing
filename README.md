@@ -31,6 +31,14 @@ Always-on-top glassmorphic overlay perfect for any workflow:
 
 ## Installation
 
+### Minimum Requirements
+
+- **Operating System**: Windows 10 or Windows 11
+- **Python**: 3.8 or higher
+- **RAM**: 100MB minimum
+- **Storage**: 50MB for source files, 45MB for executable
+- **Display**: 1280x720 resolution or higher
+
 ### Prerequisites
 
 - Python 3.8 or higher
@@ -232,4 +240,5 @@ For issues or questions, please create an issue in the project repository.
 Stay hydrated!
 
 Download [here](https://github.com/oFive-0s/HydraPing/releases)
+
 

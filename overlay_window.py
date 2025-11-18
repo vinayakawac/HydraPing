@@ -20,10 +20,11 @@ class CircularProgress(QtWidgets.QWidget):
         self._animated_progress = 0
         self.theme_manager = theme_manager or ThemeManager()
         
-        # Animation for smooth progress updates
+        # Animation for smooth progress updates (reused)
         self._progress_anim = QtCore.QPropertyAnimation(self, b"animated_progress", self)
         self._progress_anim.setDuration(600)
         self._progress_anim.setEasingCurve(QtCore.QEasingCurve.Type.OutCubic)
+        self._anim_running = False
         
     def get_animated_progress(self):
         return self._animated_progress
@@ -37,10 +38,12 @@ class CircularProgress(QtWidgets.QWidget):
     def set_progress(self, value):
         """Set progress value (0-100)"""
         self._progress = max(0, min(100, value))
-        self._progress_anim.stop()
-        self._progress_anim.setStartValue(self._animated_progress)
-        self._progress_anim.setEndValue(self._progress)
-        self._progress_anim.start()
+        if not self._anim_running or self._progress_anim.state() == QtCore.QAbstractAnimation.State.Stopped:
+            self._progress_anim.stop()
+            self._progress_anim.setStartValue(self._animated_progress)
+            self._progress_anim.setEndValue(self._progress)
+            self._progress_anim.start()
+            self._anim_running = True
         
     def paintEvent(self, event):
         """Draw circular progress ring"""
@@ -146,6 +149,11 @@ class OverlayWindow(QtWidgets.QWidget):
         self._current_consumed = 0
         self._current_goal = 2000
         self._show_consumed = True  # Toggle between consumed and countdown
+        
+        # Sound loop timer (reused)
+        self._sound_loop_timer = QtCore.QTimer(self)
+        self._sound_loop_timer.timeout.connect(self._replay_sound_internal)
+        self._current_sound_path = None
         
         # Motivational messages
         self._motivational_messages = [
@@ -720,8 +728,8 @@ class OverlayWindow(QtWidgets.QWidget):
         if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
             self.manual_drink_requested.emit(spinbox.value())
             
-    def enterEvent(self, event):
-        """Handle mouse entering the overlay widget"""
+    def _handle_hover_enter(self):
+        """Consolidated hover enter logic"""
         self._is_hovered = True
         self._animate_opacity(0.85)
         
@@ -742,12 +750,14 @@ class OverlayWindow(QtWidgets.QWidget):
         self._close_anim.setStartValue(self._close_opacity_effect.opacity())
         self._close_anim.setEndValue(1.0)
         self._close_anim.start()
-        
+    
+    def enterEvent(self, event):
+        """Handle mouse entering the overlay widget"""
+        self._handle_hover_enter()
         super().enterEvent(event)
         
     def leaveEvent(self, event):
         """Handle mouse leaving the overlay widget"""
-        # Small delay before hiding to prevent flicker
         QtCore.QTimer.singleShot(100, self._check_and_hide)
         super().leaveEvent(event)
         
@@ -755,31 +765,9 @@ class OverlayWindow(QtWidgets.QWidget):
         """Handle hover events for container"""
         if hasattr(self, "_container") and watched == self._container:
             if event.type() == QtCore.QEvent.Type.Enter:
-                self._is_hovered = True
-                self._animate_opacity(0.85)
-                
-                # Fade in background box
-                self._bg_box_anim.stop()
-                self._bg_box_anim.setStartValue(self._bg_opacity_effect.opacity())
-                self._bg_box_anim.setEndValue(1.0)
-                self._bg_box_anim.start()
-                
-                # Show info label and start alternation
-                self._show_consumed = True
-                self._info_label.setText(f"{self._current_consumed}ml / {self._current_goal}ml")
-                self._info_label.setVisible(True)
-                self._info_alternation_timer.start(2000)
-                
-                # Fade in close button
-                self._close_anim.stop()
-                self._close_anim.setStartValue(self._close_opacity_effect.opacity())
-                self._close_anim.setEndValue(1.0)
-                self._close_anim.start()
-                
+                self._handle_hover_enter()
             elif event.type() == QtCore.QEvent.Type.Leave:
-                # Small delay before hiding to prevent flicker
                 QtCore.QTimer.singleShot(100, self._check_and_hide)
-            
         return super().eventFilter(watched, event)
         
     def _check_and_hide(self):
@@ -828,9 +816,9 @@ class OverlayWindow(QtWidgets.QWidget):
             
     def play_alert_sound(self, custom_sound_path=None, loop=False):
         """Play alert sound - custom file or default system beep"""
-        # Stop any existing loop timer
-        if hasattr(self, '_sound_loop_timer'):
-            self._sound_loop_timer.stop()
+        # Stop any existing loop
+        self._sound_loop_timer.stop()
+        self._current_sound_path = custom_sound_path
             
         if custom_sound_path and os.path.exists(custom_sound_path):
             try:
@@ -858,10 +846,6 @@ class OverlayWindow(QtWidgets.QWidget):
                         winmm.mciSendStringW('status alertsound length', buffer, 254, None)
                         try:
                             duration_ms = int(buffer.value)
-                            # Create loop timer
-                            if not hasattr(self, '_sound_loop_timer'):
-                                self._sound_loop_timer = QtCore.QTimer(self)
-                                self._sound_loop_timer.timeout.connect(lambda: self._replay_sound(custom_sound_path))
                             self._sound_loop_timer.start(duration_ms + 100)  # Add small gap
                         except:
                             pass
@@ -881,8 +865,8 @@ class OverlayWindow(QtWidgets.QWidget):
             except:
                 pass
     
-    def _replay_sound(self, path):
-        """Replay sound for looping"""
+    def _replay_sound_internal(self):
+        """Replay sound for looping (internal method)"""
         try:
             import ctypes
             winmm = ctypes.windll.winmm
@@ -892,8 +876,8 @@ class OverlayWindow(QtWidgets.QWidget):
     
     def stop_alert_sound(self):
         """Stop any playing alert sound"""
-        if hasattr(self, '_sound_loop_timer'):
-            self._sound_loop_timer.stop()
+        self._sound_loop_timer.stop()
+        self._current_sound_path = None
         
         try:
             import winsound

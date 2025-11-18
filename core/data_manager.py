@@ -34,6 +34,9 @@ class DataManager:
         
         self.db = Database(str(db_path))
         self.user = user
+        self._settings_cache = None
+        self._cache_timestamp = 0
+        self._cache_ttl = 5  # Cache settings for 5 seconds
         self._perform_maintenance()
     
     def _perform_maintenance(self):
@@ -117,10 +120,16 @@ class DataManager:
         if not self.user:
             raise ValueError("No user context set. Call set_user() first.")
         
+        # Check cache first
+        import time
+        current_time = time.time()
+        if self._settings_cache and (current_time - self._cache_timestamp) < self._cache_ttl:
+            return self._settings_cache.copy()
+        
         settings = self.db.get_user_settings(self.user['id'])
         
         if settings is None:
-            return {
+            settings = {
                 'daily_goal_ml': DEFAULT_DAILY_GOAL,
                 'reminder_interval_minutes': DEFAULT_REMINDER_INTERVAL,
                 'chime_enabled': True,
@@ -128,6 +137,11 @@ class DataManager:
                 'auto_start': False,
                 'theme': DEFAULT_THEME
             }
+        
+        # Update cache
+        import time
+        self._settings_cache = settings.copy()
+        self._cache_timestamp = time.time()
         
         return settings
     
@@ -141,6 +155,10 @@ class DataManager:
             raise ValueError("No user context set. Call set_user() first.")
         
         self.db.update_user_settings(self.user['id'], **kwargs)
+        
+        # Invalidate cache
+        self._settings_cache = None
+        self._cache_timestamp = 0
     
     def get_setting(self, key, default=None):
         """Get a single setting value."""

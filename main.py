@@ -48,30 +48,61 @@ class HydraPingController(QtCore.QObject):
         self._overlay.settings_requested.connect(self.open_settings)
         self._overlay.manual_drink_requested.connect(self._handle_manual_drink)
         
-        # Timer for reminder checks
-        self._tick_timer = QtCore.QTimer(self)
-        self._tick_timer.setInterval(1000)  # 1-second interval
-        self._tick_timer.timeout.connect(self._on_tick)
+        # Fast timer for countdown display (1 second)
+        self._countdown_timer = QtCore.QTimer(self)
+        self._countdown_timer.setInterval(1000)
+        self._countdown_timer.timeout.connect(self._update_countdown)
+        
+        # Slow timer for system checks (60 seconds)
+        self._system_check_timer = QtCore.QTimer(self)
+        self._system_check_timer.setInterval(60000)  # 1 minute
+        self._system_check_timer.timeout.connect(self._system_checks)
         
         # Tracking
         self.last_reminder_time = time.time()
         self.last_date = datetime.now().date()
+        self._in_sleep_hours = False
+        self._bedtime_warning_shown = False
         
         # Tray removed
         
     def start(self):
         """Start the application - show overlay"""
-        self._tick_timer.start()
+        self._countdown_timer.start()
+        self._system_check_timer.start()
+        self._system_checks()  # Run initial check
         self._overlay.show()
         self.overlay_is_visible = True
         
-    def _on_tick(self):
-        """Called every second to update countdown and check for alerts"""
-        # Check for daily reset (midnight rollover at 12:00 AM)
+    def _update_countdown(self):
+        """Fast timer: Update countdown display every second"""
+        if not self.paused and not self._in_sleep_hours:
+            interval = self.settings.get('reminder_interval_minutes', 45)
+            elapsed_seconds = time.time() - self.last_reminder_time
+            remaining_seconds = int((interval * 60) - elapsed_seconds)
+            
+            # Check if time to trigger alert
+            if remaining_seconds <= 0:
+                self._trigger_alert()
+                self.last_reminder_time = time.time()
+                remaining_seconds = interval * 60
+            
+            # Update display
+            if remaining_seconds > 0:
+                mins = remaining_seconds // 60
+                secs = remaining_seconds % 60
+                self._overlay.update_countdown(f"Next: {mins:02d}:{secs:02d}")
+            else:
+                self._overlay.update_countdown("Next: 00:00")
+        elif self._in_sleep_hours:
+            self._overlay.update_countdown("Sleep Mode")
+    
+    def _system_checks(self):
+        """Slow timer: Check date rollover, sleep hours, bedtime warning every minute"""
+        # Check for daily reset (midnight rollover)
         current_date = datetime.now().date()
         if current_date != self.last_date:
             self.last_date = current_date
-            # Auto-reset at midnight
             self.data_manager.reset_today()
             self.today_intake = 0
             self._overlay.update_consumption(self.today_intake, self.settings['daily_goal_ml'])
@@ -82,18 +113,13 @@ class HydraPingController(QtCore.QObject):
         sleep_start = self.settings.get('sleep_start_hour', 22)
         sleep_end = self.settings.get('sleep_end_hour', 7)
         
-        in_sleep_hours = False
         if sleep_start < sleep_end:
-            in_sleep_hours = sleep_start <= current_hour < sleep_end
+            self._in_sleep_hours = sleep_start <= current_hour < sleep_end
         else:  # Sleep hours span midnight
-            in_sleep_hours = current_hour >= sleep_start or current_hour < sleep_end
+            self._in_sleep_hours = current_hour >= sleep_start or current_hour < sleep_end
         
         # Check for bedtime warning (30 min before sleep)
         if self.settings.get('bedtime_warning_enabled', True):
-            if not hasattr(self, '_bedtime_warning_shown'):
-                self._bedtime_warning_shown = False
-            
-            # Check if we're 30 min before sleep and haven't met goal
             warning_hour = (sleep_start - 1) % 24
             warning_min_start = 30
             if current_hour == warning_hour and datetime.now().minute >= warning_min_start:
@@ -102,26 +128,6 @@ class HydraPingController(QtCore.QObject):
                     self._bedtime_warning_shown = True
             else:
                 self._bedtime_warning_shown = False
-            
-        # Check for reminder (skip if in sleep hours)
-        if not self.paused and not in_sleep_hours:
-            elapsed_minutes = (time.time() - self.last_reminder_time) / 60
-            interval = self.settings.get('reminder_interval_minutes', 45)
-            
-            if elapsed_minutes >= interval:
-                self._trigger_alert()
-                self.last_reminder_time = time.time()
-                
-            # Update countdown display
-            remaining_seconds = int((interval * 60) - (time.time() - self.last_reminder_time))
-            if remaining_seconds > 0:
-                mins = remaining_seconds // 60
-                secs = remaining_seconds % 60
-                self._overlay.update_countdown(f"Next: {mins:02d}:{secs:02d}")
-            else:
-                self._overlay.update_countdown("Next: 00:00")
-        elif in_sleep_hours:
-            self._overlay.update_countdown("Sleep Mode")
                 
     def _trigger_alert(self):
         """Trigger hydration alert"""
@@ -301,10 +307,12 @@ class HydraPingController(QtCore.QObject):
         """Cleanup resources before exit"""
         print("[HydraPing] Starting cleanup...")
         
-        # Stop timer
-        if hasattr(self, '_tick_timer') and self._tick_timer:
-            self._tick_timer.stop()
-            print("[HydraPing] Timer stopped")
+        # Stop timers
+        if hasattr(self, '_countdown_timer') and self._countdown_timer:
+            self._countdown_timer.stop()
+        if hasattr(self, '_system_check_timer') and self._system_check_timer:
+            self._system_check_timer.stop()
+            print("[HydraPing] Timers stopped")
         
         # Hide and cleanup overlay
         if hasattr(self, '_overlay') and self._overlay:

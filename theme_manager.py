@@ -156,8 +156,13 @@ class ThemeManager:
     def __init__(self, theme_name='Dark Glassmorphic'):
         # Ensure attribute exists even if provided theme is invalid
         self.current_theme = 'Dark Glassmorphic'
-        self.set_theme(theme_name)
         self.auto_switch_enabled = False  # Disable auto-switching to preserve user choice
+        
+        # Cache for generated stylesheets
+        self._overlay_stylesheet_cache = {}
+        self._dialog_stylesheet_cache = {}
+        
+        self.set_theme(theme_name)
         
     def get_theme(self, theme_name=None):
         """Get theme colors"""
@@ -169,6 +174,9 @@ class ThemeManager:
         """Set current theme"""
         if theme_name in self.THEMES:
             self.current_theme = theme_name
+            # Clear caches when theme changes
+            self._overlay_stylesheet_cache.clear()
+            self._dialog_stylesheet_cache.clear()
             return True
         return False
         
@@ -178,9 +186,15 @@ class ThemeManager:
         
     def get_overlay_stylesheet(self, theme_name=None):
         """Get overlay window stylesheet for the current theme"""
+        cache_key = theme_name or self.current_theme
+        
+        # Return cached if available
+        if cache_key in self._overlay_stylesheet_cache:
+            return self._overlay_stylesheet_cache[cache_key]
+        
         theme = self.get_theme(theme_name)
         
-        return f"""
+        stylesheet = f"""
             #overlayContainer {{
                 background: qlineargradient(
                     x1:0, y1:0, x2:1, y2:1,
@@ -201,8 +215,18 @@ class ThemeManager:
             }}
         """
         
+        # Cache and return
+        self._overlay_stylesheet_cache[cache_key] = stylesheet
+        return stylesheet
+        
     def get_dialog_stylesheet(self, theme_name=None):
         """Get dialog stylesheet for the current theme"""
+        cache_key = theme_name or self.current_theme
+        
+        # Return cached if available
+        if cache_key in self._dialog_stylesheet_cache:
+            return self._dialog_stylesheet_cache[cache_key]
+        
         theme = self.get_theme(theme_name)
         
         return f"""
@@ -288,6 +312,10 @@ class ThemeManager:
                 border-radius: 4px;
             }}
         """
+        
+        # Cache and return
+        self._dialog_stylesheet_cache[cache_key] = stylesheet
+        return stylesheet
         
     def get_progress_colors(self, theme_name=None):
         """Get progress bar colors"""

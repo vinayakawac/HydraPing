@@ -5,10 +5,11 @@ A sleek PySide6-based desktop overlay with advanced glassmorphism design
 
 import sys
 import os
+import time
 from PySide6 import QtCore, QtWidgets, QtGui
 from theme_manager import ThemeManager
 from confetti_widget import ConfettiWidget
-from layouts import RectangularLayout, CircularLayout
+from layouts import NormalLayout, MinimalLayout
 
 
 class CircularProgress(QtWidgets.QWidget):
@@ -131,9 +132,9 @@ class OverlayWindow(QtWidgets.QWidget):
     drink_now_clicked = QtCore.Signal()
     snooze_clicked = QtCore.Signal()
     position_changed = QtCore.Signal(int, int)
-    close_requested = QtCore.Signal()
     settings_requested = QtCore.Signal()
     manual_drink_requested = QtCore.Signal(int)
+    terminate_requested = QtCore.Signal()
     
     def __init__(self, parent=None, theme_name='Dark Glassmorphic'):
         super().__init__(parent)
@@ -144,11 +145,25 @@ class OverlayWindow(QtWidgets.QWidget):
         # Window shape setting and layout manager
         self._window_shape = 'rectangular'  # 'rectangular' or 'circular'
         self._saved_shape = 'rectangular'  # User's preferred shape (for auto-revert)
-        self._layout_manager = RectangularLayout(self)
+        self._layout_manager = NormalLayout(self)
         
         # State management
         self._drag_active = False
         self._drag_offset = QtCore.QPoint()
+        
+        # Hold-to-close tracking
+        self._hold_timer = QtCore.QTimer(self)
+        self._hold_timer.setSingleShot(True)
+        self._hold_timer.timeout.connect(self._on_hold_complete)
+        self._is_holding = False
+        
+        # Hold visual feedback animation
+        self._hold_progress_anim = QtCore.QPropertyAnimation(self, b"windowOpacity", self)
+        self._hold_progress_anim.setDuration(3000)
+        self._hold_progress_anim.setStartValue(0.65)
+        self._hold_progress_anim.setEndValue(0.2)
+        self._hold_progress_anim.setEasingCurve(QtCore.QEasingCurve.Type.Linear)
+        
         self._is_hovered = False
         self._alert_mode = False
         self._current_message_index = 0
@@ -414,7 +429,6 @@ class OverlayWindow(QtWidgets.QWidget):
         self._drink_button = widgets['drink']
         self._snooze_button = widgets['snooze']
         self._info_label = widgets['info']
-        self._close_button = widgets['close']
         
         # Use window opacity instead of graphics effect to avoid painting conflicts
         self.setWindowOpacity(0.65)  # Rest state
@@ -557,32 +571,6 @@ class OverlayWindow(QtWidgets.QWidget):
         # Store countdown text for alternating display
         self._countdown_text = "Next: --:--"
         
-        # Close button (×)
-        widgets['close'] = QtWidgets.QToolButton(container)
-        widgets['close'].setText("×")
-        widgets['close'].setFixedSize(32, 32)
-        widgets['close'].setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
-        widgets['close'].setStyleSheet("""
-            QToolButton {
-                background: rgba(255,100,100,15);
-                color: rgba(255,255,255,180);
-                font-size: 18px;
-                font-weight: 600;
-                border-radius: 10px;
-                padding: 0px;
-            }
-            QToolButton:hover {
-                background: rgba(255,100,100,35);
-                color: rgba(255,255,255,250);
-            }
-        """)
-        widgets['close'].clicked.connect(self.close_requested.emit)
-        
-        # Opacity effect for close button
-        self._close_opacity_effect = QtWidgets.QGraphicsOpacityEffect(widgets['close'])
-        self._close_opacity_effect.setOpacity(0.0)
-        widgets['close'].setGraphicsEffect(self._close_opacity_effect)
-        
         return widgets
     
     def _update_bg_box_geometry(self):
@@ -609,11 +597,6 @@ class OverlayWindow(QtWidgets.QWidget):
         self._drink_button_anim.setEasingCurve(QtCore.QEasingCurve.Type.OutCubic)
         
         # Info label - no animations, just show/hide
-        
-        # Close button fade animation
-        self._close_anim = QtCore.QPropertyAnimation(self._close_opacity_effect, b"opacity", self)
-        self._close_anim.setDuration(300)
-        self._close_anim.setEasingCurve(QtCore.QEasingCurve.Type.InOutQuad)
         
     def _setup_timers(self):
         """Setup timers for message rotation and topmost enforcement"""
@@ -804,12 +787,6 @@ class OverlayWindow(QtWidgets.QWidget):
             self._info_label.setText(f"{self._current_consumed}ml / {self._current_goal}ml")
             self._info_label.setVisible(True)
             self._info_alternation_timer.start(2000)
-            
-            # Fade in close button
-            self._close_anim.stop()
-            self._close_anim.setStartValue(self._close_opacity_effect.opacity())
-            self._close_anim.setEndValue(1.0)
-            self._close_anim.start()
     
     def enterEvent(self, event):
         """Handle mouse entering the overlay widget"""
@@ -847,19 +824,19 @@ class OverlayWindow(QtWidgets.QWidget):
             self._bg_box_anim.setEndValue(0.0)
             self._bg_box_anim.start()
             
-            # Hide info label and stop alternation
-            self._info_label.setVisible(False)
-            self._info_alternation_timer.stop()
-            
-            # Fade out close button
-            self._close_anim.stop()
-            self._close_anim.setStartValue(self._close_opacity_effect.opacity())
-            self._close_anim.setEndValue(0.0)
-            self._close_anim.start()
+            # Hide info label and stop alternation (only if should be shown)
+            if self._layout_manager.should_show_info_label():
+                self._info_label.setVisible(False)
+                self._info_alternation_timer.stop()
             
     def mousePressEvent(self, event):
-        """Handle mouse press for drag-to-move"""
+        """Handle mouse press for drag-to-move and hold-to-close"""
         if event.button() == QtCore.Qt.MouseButton.LeftButton:
+            # Start hold timer (3 seconds) with visual feedback
+            self._is_holding = True
+            self._hold_timer.start(3000)  # 3 seconds
+            self._hold_progress_anim.start()  # Visual feedback
+            
             # Normal drag behavior
             self._drag_active = True
             self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
@@ -867,10 +844,24 @@ class OverlayWindow(QtWidgets.QWidget):
     def mouseMoveEvent(self, event):
         """Handle mouse move for drag-to-move"""
         if self._drag_active and event.buttons() & QtCore.Qt.MouseButton.LeftButton:
+            # Cancel hold-to-close if user drags
+            if self._is_holding:
+                self._hold_timer.stop()
+                self._hold_progress_anim.stop()
+                self.setWindowOpacity(0.65 if not self._is_hovered else 1.0)
+                self._is_holding = False
+            
             self.move(event.globalPosition().toPoint() - self._drag_offset)
             
     def mouseReleaseEvent(self, event):
         """Handle mouse release after dragging"""
+        # Cancel hold-to-close if released before 3 seconds
+        if self._is_holding:
+            self._hold_timer.stop()
+            self._hold_progress_anim.stop()
+            self.setWindowOpacity(0.65 if not self._is_hovered else 1.0)
+            self._is_holding = False
+        
         if self._drag_active:
             self._drag_active = False
             self.position_changed.emit(self.x(), self.y())
@@ -878,8 +869,21 @@ class OverlayWindow(QtWidgets.QWidget):
     def mouseDoubleClickEvent(self, event):
         """Handle double-click to open settings (especially for circular mode)"""
         if event.button() == QtCore.Qt.MouseButton.LeftButton:
+            # Cancel hold timer on double-click
+            if self._is_holding:
+                self._hold_timer.stop()
+                self._hold_progress_anim.stop()
+                self.setWindowOpacity(0.65 if not self._is_hovered else 1.0)
+                self._is_holding = False
             # Double-click opens settings
             self.settings_requested.emit()
+    
+    def _on_hold_complete(self):
+        """Called when user holds click for 3 seconds"""
+        if self._is_holding and not self._drag_active:
+            # User held for 3 seconds without dragging - terminate app
+            self.terminate_requested.emit()
+        self._is_holding = False
             
     def play_alert_sound(self, custom_sound_path=None, loop=False):
         """Play alert sound - custom file or default system beep"""
@@ -1069,9 +1073,9 @@ class OverlayWindow(QtWidgets.QWidget):
             
             # Update layout manager
             if shape == 'circular':
-                self._layout_manager = CircularLayout(self)
+                self._layout_manager = MinimalLayout(self)
             else:
-                self._layout_manager = RectangularLayout(self)
+                self._layout_manager = NormalLayout(self)
             
             self._apply_window_shape()
             self._update_bg_box_geometry()
@@ -1087,6 +1091,12 @@ class OverlayWindow(QtWidgets.QWidget):
                 
                 # Always hide info label initially
                 self._info_label.setVisible(False)
+                
+                # Hide buttons if not in layout (for minimal mode)
+                if not self._layout_manager.should_show_buttons_in_alert():
+                    self._drink_button.setVisible(False)
+                    self._snooze_button.setVisible(False)
+                    self._menu_button.setVisible(False)
                 
                 # Update progress widget size
                 if hasattr(self, '_progress_widget'):

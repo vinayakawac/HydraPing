@@ -6,7 +6,7 @@ from PySide6 import QtCore, QtWidgets, QtGui
 from .base_layout import BaseLayout
 
 
-class RectangularLayout(BaseLayout):
+class NormalLayout(BaseLayout):
     """Traditional horizontal rectangular layout"""
     
     def get_window_size(self):
@@ -23,14 +23,13 @@ class RectangularLayout(BaseLayout):
     
     def add_widgets_to_layout(self, layout, widgets):
         """Add widgets to the layout in horizontal arrangement"""
-        # Horizontal layout: progress, menu, message, snooze, drink, info, close
+        # Horizontal layout: progress, menu, message, snooze, drink, info
         layout.addWidget(widgets['progress'], 0)
         layout.addWidget(widgets['menu'], 0)
         layout.addWidget(widgets['message'], 1)
         layout.addWidget(widgets['snooze'], 0)
         layout.addWidget(widgets['drink'], 0)
         layout.addWidget(widgets['info'], 0)
-        layout.addWidget(widgets['close'], 0)
     
     def get_bg_box_geometry(self):
         """Return (x, y, width, height) for background box"""

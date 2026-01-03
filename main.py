@@ -50,9 +50,9 @@ class HydraPingController(QtCore.QObject):
         self._overlay.drink_now_clicked.connect(self._handle_drink_now)
         self._overlay.snooze_clicked.connect(self._handle_snooze)
         self._overlay.position_changed.connect(self._persist_overlay_position)
-        self._overlay.close_requested.connect(self._handle_overlay_close)
         self._overlay.settings_requested.connect(self.open_settings)
         self._overlay.manual_drink_requested.connect(self._handle_manual_drink)
+        self._overlay.terminate_requested.connect(self._terminate_app)
         
         # Fast timer for countdown display (1 second)
         self._countdown_timer = QtCore.QTimer(self)
@@ -259,28 +259,23 @@ class HydraPingController(QtCore.QObject):
         self.data_manager.set_setting('overlay_x', x)
         self.data_manager.set_setting('overlay_y', y)
         
-    def _handle_overlay_close(self):
-        """Handle overlay close request - exit app and tray too."""
-        try:
-            QtWidgets.QApplication.instance().quit()
-        except Exception:
-            # As a fallback, hide overlay
-            self._overlay.hide()
-            self.overlay_is_visible = False
-            
-        
     @QtCore.Slot()
     def open_settings(self):
         """Open settings dialog"""
         try:
+            # Refresh settings before opening dialog to ensure latest values
+            self.settings = self.data_manager.get_settings()
+            
             dialog = SettingsDialog(self.data_manager, parent=self._overlay)
             dialog.settings_updated.connect(self._apply_settings)
             dialog.water_reset.connect(self._handle_water_reset)
+            dialog.terminate_requested.connect(self._terminate_app)
             if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
-                # Settings were saved
-                self.settings = self.data_manager.get_settings()
-                self.today_intake = self.data_manager.get_today_total()
-                self._overlay.update_consumption(self.today_intake, self.settings['daily_goal_ml'])
+                # Settings were saved - only update if overlay still exists
+                if self._overlay is not None:
+                    self.settings = self.data_manager.get_settings()
+                    self.today_intake = self.data_manager.get_today_total()
+                    self._overlay.update_consumption(self.today_intake, self.settings['daily_goal_ml'])
         except Exception as e:
             print(f"Error opening settings: {e}")
             import traceback
@@ -367,6 +362,10 @@ class HydraPingController(QtCore.QObject):
         # Tray removed
         
         print("[HydraPing] Cleanup complete - Application will exit")
+    
+    def _terminate_app(self):
+        """Terminate the entire application"""
+        QtWidgets.QApplication.instance().quit()
         
 
 

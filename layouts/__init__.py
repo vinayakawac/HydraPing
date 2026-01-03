@@ -2,7 +2,7 @@
 Layout modules for HydraPing overlay
 """
 
-from .rectangular_layout import RectangularLayout
-from .circular_layout import CircularLayout
+from .normal_layout import NormalLayout
+from .minimal_layout import MinimalLayout
 
-__all__ = ['RectangularLayout', 'CircularLayout']
+__all__ = ['NormalLayout', 'MinimalLayout']

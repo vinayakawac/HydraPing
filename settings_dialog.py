@@ -13,6 +13,7 @@ class SettingsDialog(QtWidgets.QDialog):
     
     settings_updated = QtCore.Signal(dict)
     water_reset = QtCore.Signal()
+    terminate_requested = QtCore.Signal()
     
     def __init__(self, data_manager, parent=None):
         super().__init__(parent)
@@ -542,6 +543,35 @@ class SettingsDialog(QtWidgets.QDialog):
         button_layout.addWidget(save_btn)
         
         layout.addLayout(button_layout)
+        
+        # Close HydraPing button (separate row)
+        close_layout = QtWidgets.QHBoxLayout()
+        close_layout.setContentsMargins(0, 8, 0, 0)
+        
+        close_app_btn = QtWidgets.QPushButton("Close HydraPing")
+        close_app_btn.setMinimumHeight(38)
+        close_app_btn.setStyleSheet("""
+            QPushButton {
+                padding: 8px 20px;
+                border: 2px solid #3C4043;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 600;
+                background: rgba(232,71,71,25);
+                color: #E8EAED;
+            }
+            QPushButton:hover {
+                background: rgba(232,71,71,45);
+                border-color: #E84747;
+            }
+            QPushButton:pressed {
+                background: rgba(232,71,71,55);
+            }
+        """)
+        close_app_btn.clicked.connect(self._terminate_app)
+        
+        close_layout.addWidget(close_app_btn)
+        layout.addLayout(close_layout)
 
     def _apply_monochrome_style(self):
         """Apply grayscale, dialog-scoped styling only to settings window.
@@ -746,3 +776,8 @@ class SettingsDialog(QtWidgets.QDialog):
                 'Water Reset',
                 'Today\'s water intake has been reset to zero.'
             )
+    
+    def _terminate_app(self):
+        """Terminate HydraPing completely"""
+        self.terminate_requested.emit()
+        self.accept()

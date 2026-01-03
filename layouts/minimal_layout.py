@@ -6,7 +6,7 @@ from PySide6 import QtCore, QtWidgets, QtGui
 from .base_layout import BaseLayout
 
 
-class CircularLayout(BaseLayout):
+class MinimalLayout(BaseLayout):
     """Minimal circular layout for compact display"""
     
     def get_window_size(self):
@@ -16,7 +16,7 @@ class CircularLayout(BaseLayout):
     def create_container_layout(self, container):
         """Create and return the layout for the container widget"""
         layout = QtWidgets.QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(2, 2, 2, 2)
         layout.setSpacing(0)
         layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         return layout
@@ -28,7 +28,6 @@ class CircularLayout(BaseLayout):
         
         # Hide ALL other elements in circular mode
         widgets['menu'].setVisible(False)
-        widgets['close'].setVisible(False)
         widgets['message'].setVisible(False)
         widgets['info'].setVisible(False)
         widgets['drink'].setVisible(False)
@@ -40,7 +39,7 @@ class CircularLayout(BaseLayout):
     
     def get_progress_widget_size(self):
         """Return (width, height) for progress widget"""
-        return (35, 35)
+        return (40, 40)
     
     def should_show_message_label(self):
         """Return True if message label should be visible"""
